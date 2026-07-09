@@ -65,6 +65,15 @@ data:
         return 0
       fi
 
+      if [ -n "$project_id" ] && { [ "$import_status" = "scheduled" ] || [ "$import_status" = "started" ]; }; then
+        echo "GitLab import already in progress for: $project_path"
+      elif [ -n "$project_id" ]; then
+        echo "Removing empty project before import: $project_path"
+        curl -k -s -X DELETE "$GITLAB_URL/api/v4/projects/$project_id" \
+          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" >/dev/null
+        project_id=""
+      fi
+
       if [ -z "$project_id" ]; then
         echo "Creating GitLab project with import from source..."
         GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
@@ -96,13 +105,6 @@ data:
         fi
 
         echo "✅ Project created: $project_path (ID: $project_id)"
-      elif [ "$empty_repo" = "true" ]; then
-        echo "Project exists but is empty. Importing source repository via GitLab..."
-        project_response=$(curl -k -s -X PUT "$GITLAB_URL/api/v4/projects/$project_id" \
-          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" \
-          --header "Content-Type: application/json" \
-          --data "{\"import_url\": \"$source_url\"}")
-        echo "DEBUG: import trigger response: $project_response"
       fi
 
       echo "Waiting for GitLab to import repository..."
