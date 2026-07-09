@@ -23,7 +23,7 @@
 # Git defaults — applied to every workload via YAML anchors
 # ---------------------------------------------------------------------------
 default_settings: &git_defaults
-  repoURL: https://github.com/rhpds/service-enablement-app-platform-factory-gitops.git
+  repoURL: https://github.com/jayfray12/service-enablement-app-platform-factory-gitops.git
   targetRevision: main
 
 # ---------------------------------------------------------------------------
