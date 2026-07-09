@@ -28,7 +28,7 @@ data:
       echo "Creating group: $group_name ($group_path)"
 
       curl -k -s -X POST "$GITLAB_URL/api/v4/groups" \
-        --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" \
         --header "Content-Type: application/json" \
         --data "{
           \"name\": \"$group_name\",
@@ -57,7 +57,7 @@ data:
 
       # Get group ID
       GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
-        --header "PRIVATE-TOKEN: $GITLAB_TOKEN" | \
+        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" | \
         grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
 
       if [ -z "$GROUP_ID" ]; then
@@ -67,7 +67,7 @@ data:
 
       # Create project
       PROJECT_RESPONSE=$(curl -k -s -X POST "$GITLAB_URL/api/v4/projects" \
-        --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" \
         --header "Content-Type: application/json" \
         --data "{
           \"name\": \"$repo_name\",
@@ -126,6 +126,17 @@ data:
       echo "Waiting... ($i/30)"
       sleep 10
     done
+
+    echo "Obtaining GitLab API access token..."
+    TOKEN_RESPONSE=$(curl -k -s -X POST "$GITLAB_URL/oauth/token" \
+      --data "grant_type=password&username=root&password=$GITLAB_TOKEN")
+    GITLAB_ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | grep -o '"access_token":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+    if [ -z "$GITLAB_ACCESS_TOKEN" ]; then
+      echo "❌ Failed to obtain GitLab API access token"
+      exit 1
+    fi
+    echo "✅ GitLab API access token obtained"
 
     # Create groups
     {{- range .Values.repositories }}
