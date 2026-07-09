@@ -87,6 +87,9 @@ data:
       # Clone source repository
       echo "Cloning source repository..."
       TEMP_DIR="/tmp/$repo_name-$$"
+      echo "REPO:$repo_name"
+      echo "DIR:$TEMP_DIR"
+      ls -la $TEMP_DIR
       git clone --depth 1 "$source_url" "$TEMP_DIR" 2>/dev/null || {
         echo "❌ Failed to clone: $source_url"
         return 1
