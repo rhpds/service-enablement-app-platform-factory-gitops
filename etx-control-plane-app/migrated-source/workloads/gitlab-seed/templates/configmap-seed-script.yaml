@@ -14,6 +14,9 @@ data:
     GITLAB_URL="{{ .Values.gitlab.url }}"
     GITLAB_TOKEN="${GITLAB_ROOT_TOKEN}"
 
+    # Avoid interactive credential prompts in the Job pod
+    export GIT_TERMINAL_PROMPT=0
+
     echo "==================================="
     echo "GitLab Repository Seeding"
     echo "==================================="
@@ -44,6 +47,7 @@ data:
       local target_group=$3
       local visibility=$4
       local description=$5
+      local clone_status
 
       echo ""
       echo "-----------------------------------"
@@ -102,9 +106,12 @@ data:
       fi
 
       echo "DEBUG: running: git clone --mirror <source_url> $MIRROR_DIR"
-      if ! git clone --mirror "$source_url" "$MIRROR_DIR"; then
+      git -c credential.helper= clone --mirror "$source_url" "$MIRROR_DIR"
+      clone_status=$?
+      if [ "$clone_status" -ne 0 ]; then
         echo "❌ Failed to clone: $source_url"
-        echo "DEBUG: clone exit code: $?"
+        echo "DEBUG: clone exit code: $clone_status"
+        echo "DEBUG: If this is a public repo, verify the cluster can reach github.com over HTTPS"
         ls -la "$TEMP_DIR" 2>/dev/null || echo "DEBUG: temp dir not created: $TEMP_DIR"
         return 1
       fi
