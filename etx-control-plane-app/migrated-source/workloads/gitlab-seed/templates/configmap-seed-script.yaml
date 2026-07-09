@@ -84,24 +84,35 @@ data:
         echo "⚠️  Project may already exist: $target_group/$repo_name"
       fi
 
-      # Mirror source repository (same approach as gitlab-etx-lab automation bootstrap)
-      echo "Mirroring source repository..."
+      # Clone source repository
+      echo "Cloning source repository..."
       TEMP_DIR="/tmp/$repo_name-$$"
-      MIRROR_DIR="$TEMP_DIR/source.git"
-      GITLAB_REPO_URL="${GITLAB_URL/https:\/\//https://oauth2:${GITLAB_ACCESS_TOKEN}@}/${target_group}/${repo_name}.git"
-
-      git clone --mirror "$source_url" "$MIRROR_DIR" || {
+      git clone --depth 1 "$source_url" "$TEMP_DIR" 2>/dev/null || {
         echo "❌ Failed to clone: $source_url"
         return 1
       }
 
-      echo "Pushing mirrored repository to GitLab..."
-      git -C "$MIRROR_DIR" push --mirror "$GITLAB_REPO_URL" || {
+      cd "$TEMP_DIR"
+
+      # Configure Git
+      git config user.email "seed@etx-lab.local"
+      git config user.name "ETX Lab Seeder"
+
+      # Push to GitLab
+      echo "Pushing to GitLab..."
+      GITLAB_REPO_URL="${GITLAB_URL/$'https://'/https://root:${GITLAB_TOKEN}@}/$target_group/$repo_name.git"
+
+      git remote remove origin
+      git remote add origin "$GITLAB_REPO_URL"
+      git push -u origin main --force 2>/dev/null || \
+      git push -u origin master --force 2>/dev/null || {
         echo "❌ Failed to push to GitLab"
+        cd /
         rm -rf "$TEMP_DIR"
         return 1
       }
 
+      cd /
       rm -rf "$TEMP_DIR"
       echo "✅ Repository seeded: $target_group/$repo_name"
     }
