@@ -84,38 +84,43 @@ data:
         echo "⚠️  Project may already exist: $target_group/$repo_name"
       fi
 
-      # Clone source repository
-      echo "Cloning source repository..."
+      # Mirror source repository (same approach as gitlab-etx-lab automation bootstrap)
+      echo "Mirroring source repository..."
       TEMP_DIR="/tmp/$repo_name-$$"
-      echo "REPO:$repo_name"
-      echo "DIR:$TEMP_DIR"
-      mkdir -p $TEMP_DIR
-      git clone --depth 1 "$source_url" "$TEMP_DIR" 2>/dev/null || {
-        echo "❌ Failed to clone: $source_url"
+      MIRROR_DIR="$TEMP_DIR/source.git"
+      GITLAB_REPO_URL="${GITLAB_URL/https:\/\//https://oauth2:${GITLAB_ACCESS_TOKEN}@}/${target_group}/${repo_name}.git"
+
+      echo "DEBUG: git binary: $(command -v git 2>/dev/null || echo 'not found')"
+      echo "DEBUG: git version: $(git --version 2>&1 || echo 'unavailable')"
+      echo "DEBUG: source_url=$source_url"
+      echo "DEBUG: mirror_dir=$MIRROR_DIR"
+      echo "DEBUG: target_repo=${GITLAB_URL}/${target_group}/${repo_name}.git"
+
+      if ! command -v git >/dev/null 2>&1; then
+        echo "❌ git is not installed in the seed container"
         return 1
-      }
+      fi
 
-      cd "$TEMP_DIR"
+      echo "DEBUG: running: git clone --mirror <source_url> $MIRROR_DIR"
+      if ! git clone --mirror "$source_url" "$MIRROR_DIR"; then
+        echo "❌ Failed to clone: $source_url"
+        echo "DEBUG: clone exit code: $?"
+        ls -la "$TEMP_DIR" 2>/dev/null || echo "DEBUG: temp dir not created: $TEMP_DIR"
+        return 1
+      fi
 
-      # Configure Git
-      git config user.email "seed@etx-lab.local"
-      git config user.name "ETX Lab Seeder"
+      echo "DEBUG: mirror clone complete"
+      ls -la "$MIRROR_DIR" 2>/dev/null || echo "DEBUG: mirror dir missing after clone"
 
-      # Push to GitLab
-      echo "Pushing to GitLab..."
-      GITLAB_REPO_URL="${GITLAB_URL/$'https://'/https://root:${GITLAB_TOKEN}@}/$target_group/$repo_name.git"
-
-      git remote remove origin
-      git remote add origin "$GITLAB_REPO_URL"
-      git push -u origin main --force 2>/dev/null || \
-      git push -u origin master --force 2>/dev/null || {
+      echo "Pushing mirrored repository to GitLab..."
+      echo "DEBUG: running: git -C $MIRROR_DIR push --mirror <target_repo>"
+      if ! git -C "$MIRROR_DIR" push --mirror "$GITLAB_REPO_URL"; then
         echo "❌ Failed to push to GitLab"
-        cd /
+        echo "DEBUG: push exit code: $?"
         rm -rf "$TEMP_DIR"
         return 1
-      }
+      fi
 
-      cd /
       rm -rf "$TEMP_DIR"
       echo "✅ Repository seeded: $target_group/$repo_name"
     }
