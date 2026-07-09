@@ -14,9 +14,6 @@ data:
     GITLAB_URL="{{ .Values.gitlab.url }}"
     GITLAB_TOKEN="${GITLAB_ROOT_TOKEN}"
 
-    # Avoid interactive credential prompts in the Job pod
-    export GIT_TERMINAL_PROMPT=0
-
     echo "==================================="
     echo "GitLab Repository Seeding"
     echo "==================================="
@@ -47,7 +44,7 @@ data:
       local target_group=$3
       local visibility=$4
       local description=$5
-      local clone_status
+      local project_path project_response project_id import_status empty_repo attempt
 
       echo ""
       echo "-----------------------------------"
@@ -56,80 +53,83 @@ data:
       echo "Target: $target_group/$repo_name"
       echo "-----------------------------------"
 
-      # Create project in GitLab
-      echo "Creating GitLab project..."
+      project_path="${target_group}/${repo_name}"
+      project_response=$(curl -k -s "$GITLAB_URL/api/v4/projects/${target_group}%2F${repo_name}" \
+        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN")
+      project_id=$(echo "$project_response" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+      empty_repo=$(echo "$project_response" | grep -o '"empty_repo":\(true\|false\)' | head -1 | cut -d':' -f2)
+      import_status=$(echo "$project_response" | grep -o '"import_status":"[^"]*"' | head -1 | cut -d'"' -f4)
 
-      # Get group ID
-      GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
-        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" | \
-        grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
-
-      if [ -z "$GROUP_ID" ]; then
-        echo "❌ Failed to get group ID for: $target_group"
-        return 1
+      if [ -n "$project_id" ] && [ "$empty_repo" = "false" ]; then
+        echo "✅ Project already seeded: $project_path"
+        return 0
       fi
 
-      # Create project
-      PROJECT_RESPONSE=$(curl -k -s -X POST "$GITLAB_URL/api/v4/projects" \
-        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" \
-        --header "Content-Type: application/json" \
-        --data "{
-          \"name\": \"$repo_name\",
-          \"path\": \"$repo_name\",
-          \"namespace_id\": $GROUP_ID,
-          \"visibility\": \"$visibility\",
-          \"description\": \"$description\",
-          \"initialize_with_readme\": false
-        }")
+      if [ -z "$project_id" ]; then
+        echo "Creating GitLab project with import from source..."
+        GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
+          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" | \
+          grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
 
-      if echo "$PROJECT_RESPONSE" | grep -q "id"; then
-        echo "✅ Project created: $target_group/$repo_name"
-      else
-        echo "⚠️  Project may already exist: $target_group/$repo_name"
+        if [ -z "$GROUP_ID" ]; then
+          echo "❌ Failed to get group ID for: $target_group"
+          return 1
+        fi
+
+        project_response=$(curl -k -s -X POST "$GITLAB_URL/api/v4/projects" \
+          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" \
+          --header "Content-Type: application/json" \
+          --data "{
+            \"name\": \"$repo_name\",
+            \"path\": \"$repo_name\",
+            \"namespace_id\": $GROUP_ID,
+            \"visibility\": \"$visibility\",
+            \"description\": \"$description\",
+            \"import_url\": \"$source_url\"
+          }")
+
+        project_id=$(echo "$project_response" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+        if [ -z "$project_id" ]; then
+          echo "❌ Failed to create project: $project_path"
+          echo "$project_response"
+          return 1
+        fi
+
+        echo "✅ Project created: $project_path (ID: $project_id)"
+      elif [ "$empty_repo" = "true" ]; then
+        echo "Project exists but is empty. Importing source repository via GitLab..."
+        project_response=$(curl -k -s -X PUT "$GITLAB_URL/api/v4/projects/$project_id" \
+          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" \
+          --header "Content-Type: application/json" \
+          --data "{\"import_url\": \"$source_url\"}")
+        echo "DEBUG: import trigger response: $project_response"
       fi
 
-      # Mirror source repository (same approach as gitlab-etx-lab automation bootstrap)
-      echo "Mirroring source repository..."
-      TEMP_DIR="/tmp/$repo_name-$$"
-      MIRROR_DIR="$TEMP_DIR/source.git"
-      GITLAB_REPO_URL="${GITLAB_URL/https:\/\//https://oauth2:${GITLAB_ACCESS_TOKEN}@}/${target_group}/${repo_name}.git"
+      echo "Waiting for GitLab to import repository..."
+      for attempt in $(seq 1 60); do
+        project_response=$(curl -k -s "$GITLAB_URL/api/v4/projects/$project_id" \
+          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN")
+        import_status=$(echo "$project_response" | grep -o '"import_status":"[^"]*"' | head -1 | cut -d'"' -f4)
+        empty_repo=$(echo "$project_response" | grep -o '"empty_repo":\(true\|false\)' | head -1 | cut -d':' -f2)
 
-      echo "DEBUG: git binary: $(command -v git 2>/dev/null || echo 'not found')"
-      echo "DEBUG: git version: $(git --version 2>&1 || echo 'unavailable')"
-      echo "DEBUG: source_url=$source_url"
-      echo "DEBUG: mirror_dir=$MIRROR_DIR"
-      echo "DEBUG: target_repo=${GITLAB_URL}/${target_group}/${repo_name}.git"
+        echo "DEBUG: import_status=${import_status:-unknown} empty_repo=${empty_repo:-unknown} (attempt $attempt/60)"
 
-      if ! command -v git >/dev/null 2>&1; then
-        echo "❌ git is not installed in the seed container"
-        return 1
-      fi
+        if [ "$import_status" = "finished" ] && [ "$empty_repo" = "false" ]; then
+          echo "✅ Repository seeded: $project_path"
+          return 0
+        fi
 
-      echo "DEBUG: running: git clone --mirror <source_url> $MIRROR_DIR"
-      git -c credential.helper= clone --mirror "$source_url" "$MIRROR_DIR"
-      clone_status=$?
-      if [ "$clone_status" -ne 0 ]; then
-        echo "❌ Failed to clone: $source_url"
-        echo "DEBUG: clone exit code: $clone_status"
-        echo "DEBUG: If this is a public repo, verify the cluster can reach github.com over HTTPS"
-        ls -la "$TEMP_DIR" 2>/dev/null || echo "DEBUG: temp dir not created: $TEMP_DIR"
-        return 1
-      fi
+        if [ "$import_status" = "failed" ]; then
+          echo "❌ GitLab import failed for: $project_path"
+          echo "$project_response"
+          return 1
+        fi
 
-      echo "DEBUG: mirror clone complete"
-      ls -la "$MIRROR_DIR" 2>/dev/null || echo "DEBUG: mirror dir missing after clone"
+        sleep 10
+      done
 
-      echo "Pushing mirrored repository to GitLab..."
-      echo "DEBUG: running: git -C $MIRROR_DIR push --mirror <target_repo>"
-      if ! git -C "$MIRROR_DIR" push --mirror "$GITLAB_REPO_URL"; then
-        echo "❌ Failed to push to GitLab"
-        echo "DEBUG: push exit code: $?"
-        rm -rf "$TEMP_DIR"
-        return 1
-      fi
-
-      rm -rf "$TEMP_DIR"
-      echo "✅ Repository seeded: $target_group/$repo_name"
+      echo "❌ Timed out waiting for GitLab import: $project_path"
+      return 1
     }
 
     # Wait for GitLab to be fully ready
