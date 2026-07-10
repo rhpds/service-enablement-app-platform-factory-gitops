@@ -67,8 +67,8 @@ data:
       echo "Creating GitLab project..."
 
       GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
-        --header "PRIVATE-TOKEN: $GITLAB_TOKEN" | \
-        python3 -c "import sys, json; data = json.load(sys.stdin); print(data.get('id', ''))" 2>/dev/null || echo "")
+        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" | \
+        grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
 
       if [ -z "$GROUP_ID" ]; then
         echo "❌ Failed to get group ID for: $target_group"
