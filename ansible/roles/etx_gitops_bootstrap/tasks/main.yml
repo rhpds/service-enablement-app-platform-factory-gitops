@@ -83,6 +83,8 @@
           demo.redhat.com/platform: "true"
           argocd.argoproj.io/instance: etx-gitops
   loop:
+    - name: etx-keycloak
+      enabled: "{{ etx_keycloak_enabled }}"
     - name: gitlab
       enabled: "{{ etx_gitlab_enabled }}"
     - name: vault
