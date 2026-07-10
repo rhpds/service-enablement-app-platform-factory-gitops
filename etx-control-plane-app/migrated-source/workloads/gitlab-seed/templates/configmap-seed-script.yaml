@@ -56,9 +56,10 @@ data:
       echo "Creating GitLab project..."
 
       # Get group ID
-      GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
-        --header "PRIVATE-TOKEN: $GITLAB_TOKEN" | \
-        python3 -c "import sys, json; data = json.load(sys.stdin); print(data.get('id', ''))" 2>/dev/null || echo "")
+      GROUP_RESPONSE=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
+        --header "PRIVATE-TOKEN: $GITLAB_TOKEN")
+
+      GROUP_ID=$(echo "$GROUP_RESPONSE" | awk -F'"id":' '{if (NF>1) {match($2, /[0-9]+/); print substr($2, RSTART, RLENGTH); exit}}')
 
       if [ -z "$GROUP_ID" ]; then
         echo "❌ Failed to get group ID for: $target_group"
