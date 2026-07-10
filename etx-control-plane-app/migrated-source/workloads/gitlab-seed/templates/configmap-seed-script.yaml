@@ -14,13 +14,14 @@ data:
     GITLAB_URL="{{ .Values.gitlab.url }}"
     GITLAB_TOKEN="${GITLAB_ROOT_TOKEN}"
 
+    export GIT_TERMINAL_PROMPT=0
+
     echo "==================================="
     echo "GitLab Repository Seeding"
     echo "==================================="
     echo "GitLab URL: $GITLAB_URL"
     echo ""
 
-    # Function to create GitLab group
     create_group() {
       local group_name=$1
       local group_path=$2
@@ -37,14 +38,13 @@ data:
         }" | grep -q "id" && echo "✅ Group created: $group_path" || echo "⚠️  Group may already exist: $group_path"
     }
 
-    # Function to create and seed repository
     seed_repository() {
       local repo_name=$1
       local source_url=$2
       local target_group=$3
       local visibility=$4
       local description=$5
-      local project_path project_response project_id import_status empty_repo attempt
+      local project_path project_response project_id empty_repo
 
       echo ""
       echo "-----------------------------------"
@@ -58,33 +58,24 @@ data:
         --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN")
       project_id=$(echo "$project_response" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
       empty_repo=$(echo "$project_response" | grep -o '"empty_repo":\(true\|false\)' | head -1 | cut -d':' -f2)
-      import_status=$(echo "$project_response" | grep -o '"import_status":"[^"]*"' | head -1 | cut -d'"' -f4)
 
       if [ -n "$project_id" ] && [ "$empty_repo" = "false" ]; then
         echo "✅ Project already seeded: $project_path"
         return 0
       fi
 
-      if [ -n "$project_id" ] && { [ "$import_status" = "scheduled" ] || [ "$import_status" = "started" ]; }; then
-        echo "GitLab import already in progress for: $project_path"
-      elif [ -n "$project_id" ]; then
-        echo "Removing empty project before import: $project_path"
-        curl -k -s -X DELETE "$GITLAB_URL/api/v4/projects/$project_id" \
-          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" >/dev/null
-        project_id=""
+      echo "Creating GitLab project..."
+
+      GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
+        --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" | \
+        grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
+
+      if [ -z "$GROUP_ID" ]; then
+        echo "❌ Failed to get group ID for: $target_group"
+        return 1
       fi
 
       if [ -z "$project_id" ]; then
-        echo "Creating GitLab project with import from source..."
-        GROUP_ID=$(curl -k -s "$GITLAB_URL/api/v4/groups/$target_group" \
-          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" | \
-          grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
-
-        if [ -z "$GROUP_ID" ]; then
-          echo "❌ Failed to get group ID for: $target_group"
-          return 1
-        fi
-
         project_response=$(curl -k -s -X POST "$GITLAB_URL/api/v4/projects" \
           --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN" \
           --header "Content-Type: application/json" \
@@ -94,7 +85,7 @@ data:
             \"namespace_id\": $GROUP_ID,
             \"visibility\": \"$visibility\",
             \"description\": \"$description\",
-            \"import_url\": \"$source_url\"
+            \"initialize_with_readme\": false
           }")
 
         project_id=$(echo "$project_response" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2)
@@ -105,36 +96,27 @@ data:
         fi
 
         echo "✅ Project created: $project_path (ID: $project_id)"
+      else
+        echo "⚠️  Project exists but is empty: $project_path (ID: $project_id)"
       fi
 
-      echo "Waiting for GitLab to import repository..."
-      for attempt in $(seq 1 60); do
-        project_response=$(curl -k -s "$GITLAB_URL/api/v4/projects/$project_id" \
-          --header "Authorization: Bearer $GITLAB_ACCESS_TOKEN")
-        import_status=$(echo "$project_response" | grep -o '"import_status":"[^"]*"' | head -1 | cut -d'"' -f4)
-        empty_repo=$(echo "$project_response" | grep -o '"empty_repo":\(true\|false\)' | head -1 | cut -d':' -f2)
+      echo "Mirroring source repository..."
+      TEMP_DIR="/tmp/$repo_name-$$"
+      MIRROR_DIR="$TEMP_DIR/source.git"
+      GITLAB_REPO_URL="${GITLAB_URL/https:\/\//https://oauth2:${GITLAB_ACCESS_TOKEN}@}/${target_group}/${repo_name}.git"
 
-        echo "DEBUG: import_status=${import_status:-unknown} empty_repo=${empty_repo:-unknown} (attempt $attempt/60)"
+      if ! command -v git >/dev/null 2>&1; then
+        echo "❌ git is not installed in the seed container"
+        return 1
+      fi
 
-        if [ "$import_status" = "finished" ] && [ "$empty_repo" = "false" ]; then
-          echo "✅ Repository seeded: $project_path"
-          return 0
-        fi
+      git -c credential.helper= clone --mirror "$source_url" "$MIRROR_DIR"
+      git -C "$MIRROR_DIR" push --mirror "$GITLAB_REPO_URL"
 
-        if [ "$import_status" = "failed" ]; then
-          echo "❌ GitLab import failed for: $project_path"
-          echo "$project_response"
-          return 1
-        fi
-
-        sleep 10
-      done
-
-      echo "❌ Timed out waiting for GitLab import: $project_path"
-      return 1
+      rm -rf "$TEMP_DIR"
+      echo "✅ Repository seeded: $project_path"
     }
 
-    # Wait for GitLab to be fully ready
     echo "Waiting for GitLab API to be ready..."
     for i in {1..30}; do
       if curl -k -s -o /dev/null -w "%{http_code}" "$GITLAB_URL/api/v4/version" | grep -q "200\|401"; then
@@ -156,7 +138,6 @@ data:
     fi
     echo "✅ GitLab API access token obtained"
 
-    # Create groups
     {{- range .Values.repositories }}
     {{- if .targetGroup }}
     create_group "{{ .targetGroup }}" "{{ .targetGroup }}"
@@ -165,7 +146,6 @@ data:
 
     sleep 5
 
-    # Seed repositories
     {{- range .Values.repositories }}
     seed_repository \
       "{{ .name }}" \
