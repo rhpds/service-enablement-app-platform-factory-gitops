@@ -83,14 +83,10 @@
           demo.redhat.com/platform: "true"
           argocd.argoproj.io/instance: etx-gitops
   loop:
-    - name: etx-keycloak
-      enabled: "{{ etx_keycloak_enabled }}"
     - name: gitlab
       enabled: "{{ etx_gitlab_enabled }}"
     - name: vault
       enabled: "{{ etx_vault_enabled }}"
-    - name: quay
-      enabled: "{{ etx_quay_enabled }}"
   when: item.enabled | bool
   loop_control:
     label: "{{ item.name }}"
@@ -99,3 +95,41 @@
   kubernetes.core.k8s:
     state: present
     definition: "{{ lookup('ansible.builtin.template', 'etx-control-plane-application.yaml.j2') | from_yaml }}"
+
+- name: Wait for operator-managed namespaces to be created
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Namespace
+    name: "{{ item.name }}"
+  register: operator_namespace
+  retries: 30
+  delay: 10
+  until:
+  - operator_namespace.resources | length > 0
+  loop:
+    - name: etx-keycloak
+      enabled: "{{ etx_keycloak_enabled }}"
+    - name: quay
+      enabled: "{{ etx_quay_enabled }}"
+  when: item.enabled | bool
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Label operator-managed namespaces for ArgoCD namespaced mode
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: Namespace
+    name: "{{ item.name }}"
+    definition:
+      metadata:
+        labels:
+          argocd.argoproj.io/instance: etx-gitops
+  loop:
+    - name: etx-keycloak
+      enabled: "{{ etx_keycloak_enabled }}"
+    - name: quay
+      enabled: "{{ etx_quay_enabled }}"
+  when: item.enabled | bool
+  loop_control:
+    label: "{{ item.name }}"
