@@ -14,6 +14,12 @@ kubernetesAuth:
     path "secret/metadata/etx-lab/*" {
       capabilities = ["list", "read", "delete"]
     }
+    path "secret/data/registry/*" {
+      capabilities = ["read", "list"]
+    }
+    path "secret/metadata/registry/*" {
+      capabilities = ["read", "list"]
+    }
 
 oidcAuth:
   enabled: true
@@ -21,6 +27,10 @@ oidcAuth:
   clientId: vault
   clientSecret: changeme
   defaultRole: etx-lab-user
+
+quayCredentials:
+  username: quayadmin
+  password: openshift
 
 vault:
   global:
