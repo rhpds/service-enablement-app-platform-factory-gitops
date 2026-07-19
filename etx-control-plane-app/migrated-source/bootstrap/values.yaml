@@ -205,10 +205,10 @@ vaultEtxLab:
         capabilities = ["list", "read", "delete"]
       }
       path "secret/data/registry/*" {
-        capabilities = ["read", "list"]
+        capabilities = ["create", "read", "update", "delete", "list"]
       }
       path "secret/metadata/registry/*" {
-        capabilities = ["read", "list"]
+        capabilities = ["create", "read", "update", "delete", "list"]
       }
   oidcAuth:
     enabled: true
