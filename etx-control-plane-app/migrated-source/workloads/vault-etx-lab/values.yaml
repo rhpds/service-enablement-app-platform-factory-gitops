@@ -28,10 +28,6 @@ oidcAuth:
   clientSecret: changeme
   defaultRole: etx-lab-user
 
-quayCredentials:
-  username: quayadmin
-  password: openshift
-
 vault:
   global:
     openshift: true

@@ -175,16 +175,6 @@ spec:
               echo "Enabling KV secrets engine..."
               oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault secrets enable -version=2 -path=secret kv 2>/dev/null || true"
 
-              echo "Creating Quay registry credentials..."
-              QUAY_URL="https://quay.{{ .Values.deployer.domain }}"
-              QUAY_USERNAME="{{ .Values.quayCredentials.username }}"
-              QUAY_PASSWORD="{{ .Values.quayCredentials.password }}"
-
-              oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault kv put secret/registry/quay server='${QUAY_URL}' username='${QUAY_USERNAME}' password='${QUAY_PASSWORD}'"
-
-              echo "Verifying Quay credentials..."
-              oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault kv get secret/registry/quay"
-
               echo "Vault bootstrap completed."
           resources:
             requests:
