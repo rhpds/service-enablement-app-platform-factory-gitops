@@ -1,0 +1,5 @@
+# Image Registry Route Configuration
+# Exposes the internal OpenShift image registry externally
+# Required for promotion pipeline to copy images to Quay
+
+enabled: true
