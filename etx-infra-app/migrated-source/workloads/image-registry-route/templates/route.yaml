@@ -1,0 +1,20 @@
+{{- if .Values.enabled }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: default-route
+  namespace: openshift-image-registry
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    app.kubernetes.io/name: image-registry
+    app.kubernetes.io/component: route
+    app.kubernetes.io/part-of: etx-lab-platform
+spec:
+  to:
+    kind: Service
+    name: image-registry
+  tls:
+    termination: reencrypt
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
