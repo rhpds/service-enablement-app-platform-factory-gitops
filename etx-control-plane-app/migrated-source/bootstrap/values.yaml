@@ -204,6 +204,12 @@ vaultEtxLab:
       path "secret/metadata/etx-lab/*" {
         capabilities = ["list", "read", "delete"]
       }
+      path "secret/data/registry/*" {
+        capabilities = ["read", "list"]
+      }
+      path "secret/metadata/registry/*" {
+        capabilities = ["read", "list"]
+      }
   oidcAuth:
     enabled: true
     discoveryUrl: https://etx-sso.{{ .Values.deployer.domain }}/realms/etx-lab
