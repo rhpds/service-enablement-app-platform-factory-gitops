@@ -147,12 +147,11 @@ spec:
 
               {{- if .Values.kubernetesAuth.enabled }}
               echo "Configuring Kubernetes auth..."
-              TOKEN_REVIEWER_JWT=$(oc create token "${VAULT_RELEASE}" -n "${NAMESPACE}" --duration=24h)
               KUBE_HOST="https://kubernetes.default.svc"
               POLICY_B64='{{ .Values.kubernetesAuth.policyRules | b64enc }}'
 
               oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault auth enable kubernetes 2>/dev/null || true"
-              oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault write auth/kubernetes/config token_reviewer_jwt='${TOKEN_REVIEWER_JWT}' kubernetes_host='${KUBE_HOST}' kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+              oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault write auth/kubernetes/config kubernetes_host='${KUBE_HOST}' kubernetes_ca_cert=@/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
               oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "echo '${POLICY_B64}' | base64 -d > /tmp/policy.hcl && VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault policy write {{ .Values.kubernetesAuth.policy }} /tmp/policy.hcl"
               oc exec -n "${NAMESPACE}" "${VAULT_POD}" -- sh -c "VAULT_ADDR='${VAULT_ADDR}' VAULT_TOKEN='${ROOT_TOKEN}' vault write auth/kubernetes/role/{{ .Values.kubernetesAuth.role }} bound_service_account_names='*' bound_service_account_namespaces='*' policies={{ .Values.kubernetesAuth.policy }} ttl=24h"
 
